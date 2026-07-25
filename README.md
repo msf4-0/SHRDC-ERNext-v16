@@ -10,15 +10,14 @@ Custom ERPNext v16 with all SHRDC apps pre-installed. Single-command deployment.
 ## Quick Start
 
 ```bash
-git clone https://github.com/hisham733/shrdc-erpnext.git
-cd shrdc-erpnext
+git clone https://github.com/msf4-0/SHRDC-ERNext-v16
+cd SHRDC-ERNext-v16
 docker compose -f shrdc-compose.yml up -d
 ```
 
 Wait for the site to be created:
 
 ```bash
-cd shrdc-erpnext
 docker compose -f shrdc-compose.yml logs create-site -f
 ```
 
