@@ -1,6 +1,6 @@
 services:
   backend:
-    image: hisham733/erpnext-custom:v15
+    image: hisham733/erpnext-custom:v16
     networks:
       - frappe_network
     deploy:
@@ -16,7 +16,7 @@ services:
       MARIADB_ROOT_PASSWORD: admin
 
   configurator:
-    image: hisham733/erpnext-custom:v15
+    image: hisham733/erpnext-custom:v16
     networks:
       - frappe_network
     deploy:
@@ -45,7 +45,7 @@ services:
       - logs:/home/frappe/frappe-bench/logs
 
   create-site:
-    image: hisham733/erpnext-custom:v15
+    image: hisham733/erpnext-custom:v16
     networks:
       - frappe_network
     deploy:
@@ -75,7 +75,23 @@ services:
           fi
         done;
         echo "sites/common_site_config.json found";
-        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --install-app autocount --install-app short_courses --install-app frepple --install-app barcode_shrdc --install-app erpnext_telegram_integration --install-app hrms --install-app metabase_integration --install-app shopify --install-app sql_accounting_software --install-app e_invoice_erp --set-default frontend;
+        bench new-site \
+          --mariadb-user-host-login-scope='%' \
+          --admin-password=admin \
+          --db-root-username=root \
+          --db-root-password=admin \
+          --install-app erpnext \
+          --install-app autocount \
+          --install-app short_courses \
+          --install-app frepple \
+          --install-app barcode_shrdc \
+          --install-app erpnext_telegram_integration \
+          --install-app hrms \
+          --install-app metabase_integration \
+          --install-app shopify \
+          --install-app sql_accounting_software \
+          --install-app e_invoice_erp \
+          --set-default frontend;
 
   db:
     image: mariadb:11.8
@@ -101,7 +117,7 @@ services:
       - db-data:/var/lib/mysql
 
   frontend:
-    image: hisham733/erpnext-custom:v15
+    image: hisham733/erpnext-custom:v16
     networks:
       - frappe_network
     depends_on:
@@ -127,7 +143,7 @@ services:
       - "8080:8080"
 
   queue-long:
-    image: hisham733/erpnext-custom:v15
+    image: hisham733/erpnext-custom:v16
     networks:
       - frappe_network
     deploy:
@@ -146,7 +162,7 @@ services:
       FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
 
   queue-short:
-    image: hisham733/erpnext-custom:v15
+    image: hisham733/erpnext-custom:v16
     networks:
       - frappe_network
     deploy:
@@ -183,7 +199,7 @@ services:
         condition: on-failure
 
   scheduler:
-    image: hisham733/erpnext-custom:v15
+    image: hisham733/erpnext-custom:v16
     networks:
       - frappe_network
     deploy:
@@ -197,7 +213,7 @@ services:
       - logs:/home/frappe/frappe-bench/logs
 
   websocket:
-    image: hisham733/erpnext-custom:v15
+    image: hisham733/erpnext-custom:v16
     networks:
       - frappe_network
     deploy:
