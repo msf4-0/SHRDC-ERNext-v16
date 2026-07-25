@@ -1,240 +1,82 @@
-services:
-  backend:
-    image: hisham733/erpnext-custom:v16
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: on-failure
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-    environment:
-      DB_HOST: db
-      DB_PORT: "3306"
-      MYSQL_ROOT_PASSWORD: admin
-      MARIADB_ROOT_PASSWORD: admin
+# SHRDC v16 Image
 
-  configurator:
-    image: hisham733/erpnext-custom:v16
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: none
-    entrypoint:
-      - bash
-      - -c
-    command:
-      - >
-        ls -1 apps > sites/apps.txt;
-        bench set-config -g db_host $$DB_HOST;
-        bench set-config -gp db_port $$DB_PORT;
-        bench set-config -g redis_cache "redis://$$REDIS_CACHE";
-        bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
-        bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
-        bench set-config -gp socketio_port $$SOCKETIO_PORT;
-    environment:
-      DB_HOST: db
-      DB_PORT: "3306"
-      REDIS_CACHE: redis-cache:6379
-      REDIS_QUEUE: redis-queue:6379
-      SOCKETIO_PORT: "9000"
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
+Custom ERPNext v16 Docker image with all migrated apps pre-installed.
 
-  create-site:
-    image: hisham733/erpnext-custom:v16
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: none
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-    entrypoint:
-      - bash
-      - -c
-    command:
-      - >
-        wait-for-it -t 120 db:3306;
-        wait-for-it -t 120 redis-cache:6379;
-        wait-for-it -t 120 redis-queue:6379;
-        export start=`date +%s`;
-        until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] && \
-          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] && \
-          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_queue // empty"` ]];
-        do
-          echo "Waiting for sites/common_site_config.json to be created";
-          sleep 5;
-          if (( `date +%s`-start > 120 )); then
-            echo "could not find sites/common_site_config.json with required keys";
-            exit 1
-          fi
-        done;
-        echo "sites/common_site_config.json found";
-        bench new-site \
-          --mariadb-user-host-login-scope='%' \
-          --admin-password=admin \
-          --db-root-username=root \
-          --db-root-password=admin \
-          --install-app erpnext \
-          --install-app autocount \
-          --install-app short_courses \
-          --install-app frepple \
-          --install-app barcode_shrdc \
-          --install-app erpnext_telegram_integration \
-          --install-app hrms \
-          --install-app metabase_integration \
-          --install-app shopify \
-          --install-app sql_accounting_software \
-          --install-app e_invoice_erp \
-          --set-default frontend;
+## Apps Included
 
-  db:
-    image: mariadb:11.8
-    networks:
-      - frappe_network
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      start_period: 5s
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-      - --skip-character-set-client-handshake
-    environment:
-      MYSQL_ROOT_PASSWORD: admin
-      MARIADB_ROOT_PASSWORD: admin
-    volumes:
-      - db-data:/var/lib/mysql
+| App | Source |
+|---|---|---|
+| ERPNext | frappe/erpnext (version-16) |
+| Autocount | hisham733/autocount_v16 |
+| Short Courses | hisham733/short_courses_v16 |
+| Frepple | hisham733/frepple_v16 |
+| Barcode SHRDC | hisham733/barcode_shrdc_v16 |
+| Telegram Integration | hisham733/erpnext_telegram_integration_v16 |
+| HRMS | hisham733/hrms_v16 |
+| Metabase Integration | hisham733/metabase_integration_v16 |
+| Shopify | hisham733/shopify_v16 |
+| SQL Accounting Software | hisham733/sql_accounting_software_v16 |
+| E Invoice ERP | hisham733/e_invoice_erp_v16 |
 
-  frontend:
-    image: hisham733/erpnext-custom:v16
-    networks:
-      - frappe_network
-    depends_on:
-      - websocket
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - nginx-entrypoint.sh
-    environment:
-      BACKEND: backend:8000
-      FRAPPE_SITE_NAME_HEADER: frontend
-      SOCKETIO: websocket:9000
-      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
-      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
-      UPSTREAM_REAL_IP_RECURSIVE: "off"
-      PROXY_READ_TIMEOUT: 120
-      CLIENT_MAX_BODY_SIZE: 50m
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-    ports:
-      - "8080:8080"
+## Build the Image
 
-  queue-long:
-    image: hisham733/erpnext-custom:v16
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - bench
-      - worker
-      - --queue
-      - long,default,short
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-    environment:
-      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
-      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
+This repo includes a GitHub Actions workflow that automatically builds and pushes the image when changes are pushed to `main`.
 
-  queue-short:
-    image: hisham733/erpnext-custom:v16
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - bench
-      - worker
-      - --queue
-      - short,default
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-    environment:
-      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
-      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
+### Required Secret
 
-  redis-queue:
-    image: redis:6.2-alpine
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: on-failure
-    volumes:
-      - redis-queue-data:/data
+Add a **Docker Hub access token** as a repository secret named `DOCKER_PAT`:
 
-  redis-cache:
-    image: redis:6.2-alpine
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: on-failure
+1. Go to https://hub.docker.com/settings/security
+2. Create a new access token with Read & Write permissions
+3. Add it to this repo: Settings → Secrets and variables → Actions → New repository secret
+4. Name: `DOCKER_PAT`, Value: *(your token)*
 
-  scheduler:
-    image: hisham733/erpnext-custom:v16
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - bench
-      - schedule
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
+### Trigger a Build
 
-  websocket:
-    image: hisham733/erpnext-custom:v16
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - node
-      - /home/frappe/frappe-bench/apps/frappe/socketio.js
-    environment:
-      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
-      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
+- Push to `main` branch, or
+- Go to Actions → "Build and Push Custom Frappe Image" → Run workflow
 
-volumes:
-  db-data:
-  redis-queue-data:
-  sites:
-  logs:
+The image will be pushed to `hisham733/erpnext-custom:v16`.
 
-networks:
-  frappe_network:
-    driver: bridge
+## Deploy
+
+```bash
+docker compose -f shrdc-compose.yml up -d
+```
+
+Wait a few minutes for the site to be created. Check progress:
+
+```bash
+docker compose -f shrdc-compose.yml logs create-site -f
+```
+
+Once complete, access ERPNext at http://localhost:8080
+
+- **Username**: Administrator
+- **Password**: admin
+
+## Update Deployment
+
+To update an existing deployment with a new image without data loss:
+
+```bash
+cd shrdc-erpnext
+docker compose -f shrdc-compose.yml pull
+docker compose -f shrdc-compose.yml up -d
+```
+
+All data is preserved. To sync workspace/fixture changes:
+
+```bash
+docker compose -f shrdc-compose.yml exec backend bench --site frontend migrate
+```
+
+## Backup
+
+```bash
+docker compose -f shrdc-compose.yml exec backend bench --site frontend backup
+```
+
+## Customize
+
+Edit `apps.json` to add or remove apps, then push to trigger a new build.
