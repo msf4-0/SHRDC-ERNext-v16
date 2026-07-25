@@ -1,93 +1,240 @@
-# SHRDC ERPNext v15
+services:
+  backend:
+    image: hisham733/erpnext-custom:v16
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
 
-Custom ERPNext v15 with all SHRDC apps pre-installed. Single-command deployment.
+  configurator:
+    image: hisham733/erpnext-custom:v16
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: none
+    entrypoint:
+      - bash
+      - -c
+    command:
+      - >
+        ls -1 apps > sites/apps.txt;
+        bench set-config -g db_host $$DB_HOST;
+        bench set-config -gp db_port $$DB_PORT;
+        bench set-config -g redis_cache "redis://$$REDIS_CACHE";
+        bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
+        bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
+        bench set-config -gp socketio_port $$SOCKETIO_PORT;
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      SOCKETIO_PORT: "9000"
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
 
-## Requirements
+  create-site:
+    image: hisham733/erpnext-custom:v16
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: none
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    entrypoint:
+      - bash
+      - -c
+    command:
+      - >
+        wait-for-it -t 120 db:3306;
+        wait-for-it -t 120 redis-cache:6379;
+        wait-for-it -t 120 redis-queue:6379;
+        export start=`date +%s`;
+        until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] && \
+          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] && \
+          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_queue // empty"` ]];
+        do
+          echo "Waiting for sites/common_site_config.json to be created";
+          sleep 5;
+          if (( `date +%s`-start > 120 )); then
+            echo "could not find sites/common_site_config.json with required keys";
+            exit 1
+          fi
+        done;
+        echo "sites/common_site_config.json found";
+        bench new-site \
+          --mariadb-user-host-login-scope='%' \
+          --admin-password=admin \
+          --db-root-username=root \
+          --db-root-password=admin \
+          --install-app erpnext \
+          --install-app autocount \
+          --install-app short_courses \
+          --install-app frepple \
+          --install-app barcode_shrdc \
+          --install-app erpnext_telegram_integration \
+          --install-app hrms \
+          --install-app metabase_integration \
+          --install-app shopify \
+          --install-app sql_accounting_software \
+          --install-app e_invoice_erp \
+          --set-default frontend;
 
-- Docker (20.10+) and Docker Compose
-- 4 GB RAM minimum, 8 GB recommended
+  db:
+    image: mariadb:11.8
+    networks:
+      - frappe_network
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 5s
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+    environment:
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
+    volumes:
+      - db-data:/var/lib/mysql
 
-## Quick Start
-
-```bash
-git clone https://github.com/msf4-0/SHRDC-ERNext-v15.git
-cd SHRDC-ERNext-v15
-docker compose -f shrdc-compose.yml up -d
-```
-
-Wait for the site to be created:
-
-```bash
-cd SHRDC-ERNext-v15
-docker compose -f shrdc-compose.yml logs create-site -f
-```
-
-Once complete (5-10 min), access at **http://localhost:8080**
-
-- **Username:** Administrator
-- **Password:** admin
-
-## Apps Included
-
-| App | Purpose |
-|---|---|
-| ERPNext | Core ERP system (v15) |
-| Autocount | Accounting integration |
-| Short Courses | Training management |
-| Frepple | Production planning |
-| Barcode SHRDC | Barcode scanning |
-| Telegram Integration | Telegram messaging |
-| HRMS | HR management |
-| Metabase Integration | Analytics integration |
-| Shopify | E-commerce integration |
-| SQL Accounting | SQL accounting software |
-| E Invoice ERP | E-invoicing (LHDN) |
-
-## Update
-
-When a new image version is released, update without data loss:
-
-```bash
-cd SHRDC-ERNext-v15
-docker compose -f shrdc-compose.yml pull
-docker compose -f shrdc-compose.yml up -d
-```
-
-The `create-site` service detects the site already exists and exits. All other services restart with the new image. **All data is preserved.**
-
-### Sync Workspace & Fixture Changes
-
-```bash
-docker compose -f shrdc-compose.yml exec backend bench --site frontend migrate
-```
-
-### Backup Before Update (Recommended)
-
-```bash
-docker compose -f shrdc-compose.yml exec backend bench --site frontend backup
-```
-
-## Custom Port
-
-If port 8080 is in use, edit `SHRDC-ERNext-v15/shrdc-compose.yml` and change:
-
-```yaml
+  frontend:
+    image: hisham733/erpnext-custom:v16
+    networks:
+      - frappe_network
+    depends_on:
+      - websocket
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - nginx-entrypoint.sh
+    environment:
+      BACKEND: backend:8000
+      FRAPPE_SITE_NAME_HEADER: frontend
+      SOCKETIO: websocket:9000
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: 120
+      CLIENT_MAX_BODY_SIZE: 50m
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
     ports:
-      - "8081:8080"
-```
+      - "8080:8080"
 
-Then access at http://localhost:8081.
+  queue-long:
+    image: hisham733/erpnext-custom:v16
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - worker
+      - --queue
+      - long,default,short
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    environment:
+      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
+      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
 
-## Stop
+  queue-short:
+    image: hisham733/erpnext-custom:v16
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - worker
+      - --queue
+      - short,default
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    environment:
+      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
+      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
 
-```bash
-cd SHRDC-ERNext-v15
-docker compose -f shrdc-compose.yml down
-```
+  redis-queue:
+    image: redis:6.2-alpine
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - redis-queue-data:/data
 
-To remove all data:
+  redis-cache:
+    image: redis:6.2-alpine
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
 
-```bash
-cd SHRDC-ERNext-v15
-docker compose -f shrdc-compose.yml down -v
-```
+  scheduler:
+    image: hisham733/erpnext-custom:v16
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - schedule
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+  websocket:
+    image: hisham733/erpnext-custom:v16
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - node
+      - /home/frappe/frappe-bench/apps/frappe/socketio.js
+    environment:
+      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
+      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+volumes:
+  db-data:
+  redis-queue-data:
+  sites:
+  logs:
+
+networks:
+  frappe_network:
+    driver: bridge
